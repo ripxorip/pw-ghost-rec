@@ -22,6 +22,18 @@
         - Extracts matching audio from buffer
         - Sends clean WAV back to Windows
 
+## 🔗 Signal Flow
+This tool is intended to be inserted **before** the PWAR (PipeWire ASIO Relay) driver in your audio chain. This allows it to inject sync markers and capture pristine audio _before_ any streaming or network-induced glitches can occur.
+
+Typical flow:
+
+```
+Sound card → pw-ghost-rec → PWAR/Streaming → Reaper
+```
+
+- `pw-ghost-rec` acts as a PipeWire filter node, sitting between your sound card and the streaming/recording system.
+- This placement ensures that all markers and local recordings are perfectly aligned with what is sent to Reaper, enabling accurate post-hoc replacement.
+
 ## 🧰 Tools Used
 - `PipeWire filter` (C): inserts marker + records audio
 - `liblo` (C): listens for OSC from Reaper
