@@ -36,6 +36,7 @@
           liblo
           meson
           ninja
+          check
         ];
       };
     });

@@ -4,3 +4,4 @@ project('pw-ghost-rec', 'c',
 )
 
 subdir('src')
+subdir('test')
