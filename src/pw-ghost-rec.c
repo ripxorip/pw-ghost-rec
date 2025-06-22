@@ -18,17 +18,34 @@ struct data {
     struct pw_main_loop *loop;
     struct pw_filter *filter;
     struct pw_filter_port *in_port;
+    struct pw_filter_portort *out_port;
 };
 
 static void on_process(void *userdata, struct spa_io_position *position) {
     struct data *data = (struct data *)userdata;
     float *in = pw_filter_get_dsp_buffer(data->in_port, position->clock.duration);
+    float *out = pw_filter_get_dsp_buffer(data->out_port, position->clock.duration);
     uint32_t n_samples = position->clock.duration;
-    // Print samples to stdout (as floats)
-    for (uint32_t i = 0; i < n_samples; ++i) {
-        printf("%f\n", in[i]);
+
+    if (in) {
+        // Print samples to stdout (as floats)
+        for (uint32_t i = 0; i < n_samples; ++i) {
+            printf("%f\n", in[i]);
+        }
     }
-    // TODO: Save samples to a local buffer or file for later patching
+
+    if (in && out) {
+        // Passthrough: copy input to output
+        for (uint32_t i = 0; i < n_samples; ++i) {
+            out[i] = in[i];
+        }
+    } else if (out) {
+        // Output is available but input is not: zero the output
+        for (uint32_t i = 0; i < n_samples; ++i) {
+            out[i] = 0.0f;
+        }
+    }
+    // If neither in nor out, do nothing
 }
 
 static const struct pw_filter_events filter_events = {
@@ -66,6 +83,15 @@ int main(int argc, char *argv[]) {
         pw_properties_new(
             PW_KEY_FORMAT_DSP, "32 bit float mono audio",
             PW_KEY_PORT_NAME, "input",
+            NULL),
+        NULL, 0);
+    data.out_port = pw_filter_add_port(data.filter,
+        PW_DIRECTION_OUTPUT,
+        PW_FILTER_PORT_FLAG_MAP_BUFFERS,
+        0,
+        pw_properties_new(
+            PW_KEY_FORMAT_DSP, "32 bit float mono audio",
+            PW_KEY_PORT_NAME, "output-right",
             NULL),
         NULL, 0);
     if (pw_filter_connect(data.filter,
