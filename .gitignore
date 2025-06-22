@@ -1,3 +1,5 @@
 .envrc
 .direnv/
 _out/
+.ccls-cache/
+compile_commands.json
