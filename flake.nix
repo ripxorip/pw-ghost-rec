@@ -34,6 +34,8 @@
           pkg-config
           pipewire.dev
           liblo
+          meson
+          ninja
         ];
       };
     });
