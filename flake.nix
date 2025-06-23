@@ -37,6 +37,7 @@
           meson
           ninja
           check
+          libsndfile.dev
         ];
       };
     });

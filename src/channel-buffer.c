@@ -14,7 +14,8 @@ void channel_buffer_free(channel_buffer_t *cb) {
 
 void channel_buffer_write(channel_buffer_t *cb, const float *samples, int number_of_samples) {
     for (int i = 0; i < number_of_samples; ++i) {
-        ringbuffer_float_write(&cb->buffer, &samples[i]);
+        // Cast away const since ringbuffer_float_write does not modify the input value
+        ringbuffer_float_write(&cb->buffer, (float *)&samples[i]);
     }
 }
 
@@ -26,8 +27,9 @@ int channel_buffer_read(const channel_buffer_t *cb, float *samples, float offset
     int offset_samples = (int)(offset_seconds * cb->sample_rate);
     int num_samples = (int)(duration_seconds * cb->sample_rate);
     if (num_samples > samples_size) num_samples = samples_size;
+    // Read forward in time from (now - offset) for duration seconds
     for (int i = 0; i < num_samples; ++i) {
-        ringbuffer_float_get_value((ringbuffer_float_t *)&cb->buffer, &samples[i], offset_samples + (num_samples - 1 - i));
+        ringbuffer_float_get_value((ringbuffer_float_t *)&cb->buffer, &samples[i], offset_samples - i);
     }
     return num_samples;
 }
