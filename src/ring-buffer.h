@@ -3,32 +3,24 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 
-// Opaque ring buffer type
-struct ring_buffer;
-typedef struct ring_buffer ring_buffer_t;
+typedef struct {
+    float *buffer;
+    uint32_t start;
+    uint32_t end;
+    uint32_t size;
+} ringbuffer_float_t;
 
-// Initialize the ring buffer
-// duration_seconds: total seconds to store
-// buffer_size: number of frames per write (stride)
-// channels: number of audio channels
-// sample_rate: audio sample rate (Hz)
-// Returns pointer to ring buffer, or NULL on failure
-ring_buffer_t *ring_buffer_init(size_t duration_seconds, size_t buffer_size, size_t channels, size_t sample_rate);
+void ringbuffer_float_init(ringbuffer_float_t *state, uint32_t size);
 
-// Free the ring buffer
-void ring_buffer_free(ring_buffer_t *rb);
+void ringbuffer_float_free(ringbuffer_float_t *state);
 
-// Write audio data to the buffer
-// data: pointer to interleaved channel blocks (channels x buffer_size samples)
-// Returns 0 on success, -1 on error
-int ring_buffer_write(ring_buffer_t *rb, const float *data);
+void ringbuffer_float_increment_pointers(ringbuffer_float_t *state);
 
-// Retrieve audio data from a specific time range (from seconds_ago up to seconds_ago + duration)
-// out: pointer to buffer to fill (channels x frames samples)
-// seconds_ago: start time offset (in seconds from now, e.g., 10.0 = 10 seconds ago)
-// duration: duration in seconds to read
-// Returns 0 on success, -1 on error
-int ring_buffer_read(ring_buffer_t *rb, float *out, double seconds_ago, double duration);
+void ringbuffer_float_write(ringbuffer_float_t *state, float *value);
+
+void ringbuffer_float_get_value(ringbuffer_float_t *state, float *value, int32_t offset);
+
 
 #endif /* RING_BUFFER */
