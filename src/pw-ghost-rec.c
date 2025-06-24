@@ -15,6 +15,7 @@
 #include <pipewire/filter.h>
 #include <lo/lo.h>
 #include <pthread.h>
+#include <stdatomic.h>
 
 struct data {
     struct pw_main_loop *loop;
@@ -22,6 +23,9 @@ struct data {
     struct pw_filter_port *in_port;
     struct pw_filter_portort *out_port;
 };
+
+// Add a global atomic flag to signal shutdown
+static atomic_int osc_should_exit = 0;
 
 static void on_process(void *userdata, struct spa_io_position *position) {
     struct data *data = (struct data *)userdata;
@@ -61,19 +65,13 @@ static void do_quit(void *userdata, int signal_number) {
     pw_main_loop_quit(data->loop);
 }
 
-// OSC handler for /record/start
-int osc_record_start(const char *path, const char *types, lo_arg **argv,
-                    int argc, struct lo_message_ *msg, void *user_data) {
-    (void)path; (void)types; (void)argv; (void)argc; (void)msg; (void)user_data;
-    printf("OSC: Received /record/start\n");
-    return 0;
-}
-
-// OSC handler for /record/stop
-int osc_record_stop(const char *path, const char *types, lo_arg **argv,
-                    int argc, struct lo_message_ *msg, void *user_data) {
-    (void)path; (void)types; (void)argv; (void)argc; (void)msg; (void)user_data;
-    printf("OSC: Received /record/stop\n");
+// OSC handler for /record
+int osc_record(const char *path, const char *types, lo_arg **argv,
+              int argc, struct lo_message_ *msg, void *user_data) {
+    (void)path; (void)types; (void)msg; (void)user_data;
+    if (argc == 1 && types && types[0] == 'f') {
+        printf("OSC: Received /record (float): %f\n", argv[0]->f);
+    }
     return 0;
 }
 
@@ -81,13 +79,13 @@ int osc_record_stop(const char *path, const char *types, lo_arg **argv,
 void *osc_server_thread(void *arg) {
     (void)arg;
     lo_server_thread st = lo_server_thread_new("9000", NULL); // Listen on UDP 9000
-    lo_server_thread_add_method(st, "/record/start", NULL, osc_record_start, NULL);
-    lo_server_thread_add_method(st, "/record/stop", NULL, osc_record_stop, NULL);
+    lo_server_thread_add_method(st, "/record", NULL, osc_record, NULL);
     lo_server_thread_start(st);
-    // Keep thread alive
-    while (1) {
+    // Wait for main thread to signal exit
+    while (!atomic_load(&osc_should_exit)) {
         sleep(1);
     }
+    lo_server_thread_stop(st);
     lo_server_thread_free(st);
     return NULL;
 }
@@ -136,9 +134,11 @@ int main(int argc, char *argv[]) {
     pthread_t osc_thread;
     pthread_create(&osc_thread, NULL, osc_server_thread, NULL);
     pw_main_loop_run(data.loop);
+    // Signal OSC thread to exit
+    atomic_store(&osc_should_exit, 1);
+    pthread_join(osc_thread, NULL);
     pw_filter_destroy(data.filter);
     pw_main_loop_destroy(data.loop);
     pw_deinit();
-    pthread_join(osc_thread, NULL);
     return 0;
 }
