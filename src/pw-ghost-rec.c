@@ -13,6 +13,8 @@
 #include <string.h>
 #include <pipewire/pipewire.h>
 #include <pipewire/filter.h>
+#include <lo/lo.h>
+#include <pthread.h>
 
 struct data {
     struct pw_main_loop *loop;
@@ -59,6 +61,37 @@ static void do_quit(void *userdata, int signal_number) {
     pw_main_loop_quit(data->loop);
 }
 
+// OSC handler for /record/start
+int osc_record_start(const char *path, const char *types, lo_arg **argv,
+                    int argc, struct lo_message_ *msg, void *user_data) {
+    (void)path; (void)types; (void)argv; (void)argc; (void)msg; (void)user_data;
+    printf("OSC: Received /record/start\n");
+    return 0;
+}
+
+// OSC handler for /record/stop
+int osc_record_stop(const char *path, const char *types, lo_arg **argv,
+                    int argc, struct lo_message_ *msg, void *user_data) {
+    (void)path; (void)types; (void)argv; (void)argc; (void)msg; (void)user_data;
+    printf("OSC: Received /record/stop\n");
+    return 0;
+}
+
+// OSC server thread function
+void *osc_server_thread(void *arg) {
+    (void)arg;
+    lo_server_thread st = lo_server_thread_new("9000", NULL); // Listen on UDP 9000
+    lo_server_thread_add_method(st, "/record/start", NULL, osc_record_start, NULL);
+    lo_server_thread_add_method(st, "/record/stop", NULL, osc_record_stop, NULL);
+    lo_server_thread_start(st);
+    // Keep thread alive
+    while (1) {
+        sleep(1);
+    }
+    lo_server_thread_free(st);
+    return NULL;
+}
+
 int main(int argc, char *argv[]) {
     struct data data;
     memset(&data, 0, sizeof(data));
@@ -100,9 +133,12 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "can't connect\n");
         return -1;
     }
+    pthread_t osc_thread;
+    pthread_create(&osc_thread, NULL, osc_server_thread, NULL);
     pw_main_loop_run(data.loop);
     pw_filter_destroy(data.filter);
     pw_main_loop_destroy(data.loop);
     pw_deinit();
+    pthread_join(osc_thread, NULL);
     return 0;
 }
