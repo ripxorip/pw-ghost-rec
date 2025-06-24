@@ -3,6 +3,7 @@ import tempfile
 import requests
 import soundfile as sf
 import numpy as np
+import struct
 
 SYNC_PATTERN = np.array([
     1.23e-5, -2.34e-5, 3.45e-5, -4.56e-5,
@@ -19,6 +20,33 @@ def find_sync_offset(audio: np.ndarray) -> int:
         if np.all(np.abs(audio[i:i+len(SYNC_PATTERN)] - SYNC_PATTERN) < SYNC_TOL):
             return i
     return -1
+
+
+def float32_to_pcm24(samples):
+    # Clip to [-1, 1]
+    samples = np.clip(samples, -1.0, 1.0)
+    # Scale to int32 range for 24-bit
+    ints = (samples * 8388607.0).astype(np.int32)
+    # Pack as 3 bytes little-endian
+    pcm_bytes = bytearray()
+    for i in ints:
+        pcm_bytes += struct.pack('<i', i)[0:3]  # take only 3 LSBs
+    return pcm_bytes
+
+
+def find_wav_data_offset(path):
+    # Returns (data_offset, data_size)
+    with open(path, 'rb') as f:
+        riff = f.read(12)
+        while True:
+            chunk = f.read(8)
+            if len(chunk) < 8:
+                break
+            chunk_id, chunk_size = struct.unpack('<4sI', chunk)
+            if chunk_id == b'data':
+                return f.tell(), chunk_size
+            f.seek(chunk_size, 1)
+    raise RuntimeError('data chunk not found')
 
 
 def main():
@@ -76,11 +104,35 @@ def main():
     else:
         print("Warning: sync pattern location out of bounds for gain boost!")
 
-    # Save aligned file with same format as reference, overwriting the reference file
-    out_path = ref_path
-    ref_info = sf.info(ref_path)
-    sf.write(out_path, dl_audio, ref_sr, subtype=ref_info.subtype, format=ref_info.format)
-    print(f"Aligned file written to {out_path} (format: {ref_info.format}, subtype: {ref_info.subtype})")
+    # --- PATCHING LOGIC STARTS HERE ---
+    # Find data chunk offset
+    data_offset, data_size = find_wav_data_offset(ref_path)
+    print(f"WAV data chunk at offset {data_offset}, size {data_size}")
+
+    # Only patch from sync point onward
+    patch_start = sync_start
+    patch_len = len(dl_audio) - patch_start
+    # Read original file's pre-sync samples
+    with open(ref_path, 'rb') as f:
+        f.seek(data_offset)
+        orig_data = f.read(data_size)
+    bytes_per_sample = 3
+    preamble_bytes = patch_start * bytes_per_sample
+    # Compose new data: preamble (original), patch (aligned)
+    new_patch_bytes = float32_to_pcm24(dl_audio[patch_start:])
+    new_data = orig_data[:preamble_bytes] + new_patch_bytes
+    # Pad/truncate to match original data size
+    if len(new_data) < len(orig_data):
+        new_data += orig_data[len(new_data):]
+    elif len(new_data) > len(orig_data):
+        new_data = new_data[:len(orig_data)]
+
+    # Overwrite only the data chunk
+    with open(ref_path, 'r+b') as f:
+        f.seek(data_offset)
+        f.write(new_data)
+    print(f"Patched {ref_path} (only data chunk, PCM_24, post-sync)")
+    # --- PATCHING LOGIC ENDS HERE ---
 
 if __name__ == '__main__':
     main()
