@@ -15,7 +15,7 @@ typedef struct {
 
 void audio_buffer_init(audio_buffer_t *ab, unsigned int num_channels, unsigned int sample_rate, unsigned int buffer_seconds);
 void audio_buffer_free(audio_buffer_t *ab);
-void audio_buffer_push(audio_buffer_t *ab, const float *samples, int num_samples, int channel, int inject_sync);
+void audio_buffer_push(audio_buffer_t *ab, float *samples, int num_samples, int channel, int inject_sync);
 
 // Write a segment of a channel to a wav file
 int audio_buffer_write_channel_to_wav(audio_buffer_t *ab, int channel, float offset_seconds, float duration_seconds, const char *filename);

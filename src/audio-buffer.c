@@ -38,10 +38,10 @@ static void inject_sync(float *samples, int num_samples) {
     }
 }
 
-void audio_buffer_push(audio_buffer_t *ab, const float *samples, int num_samples, int channel, int inject_sync_flag) {
+void audio_buffer_push(audio_buffer_t *ab, float *samples, int num_samples, int channel, int inject_sync_flag) {
     if (ab == NULL || ab->channels == NULL || channel < 0 || channel >= (int)ab->num_channels) return;
     if (inject_sync_flag) {
-        inject_sync((float *)samples, num_samples);
+        inject_sync(samples, num_samples);
         ab->samples_since_sync = 0;
         ab->sync_active = 1;
     } else if (ab->sync_active) {
@@ -58,6 +58,12 @@ int audio_buffer_write_channel_to_wav(audio_buffer_t *ab, int channel, float off
     if (!buffer) return -2;
     int read = channel_buffer_read(&ab->channels[channel], buffer, offset_seconds, duration_seconds, num_samples);
     if (read <= 0) { free(buffer); return -3; }
+
+    // Soft clamp all float audio to [-1.0, +1.0] before writing to WAV
+    for (int i = 0; i < read; ++i) {
+        if (buffer[i] > 1.0f) buffer[i] = 0.99f;
+        else if (buffer[i] < -1.0f) buffer[i] = -0.99f;
+    }
 
     SF_INFO sfinfo = {0};
     sfinfo.samplerate = sample_rate;
