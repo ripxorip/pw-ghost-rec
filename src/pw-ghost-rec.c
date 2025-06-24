@@ -17,9 +17,13 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include "audio-buffer.h"
+#include <microhttpd.h>
+#include <sys/stat.h>
 
 #define AUDIO_BUFFER_SECONDS (30 * 60)
 #define SYNC_PRE_DELAY_SECONDS 0.100
+#define HTTP_PORT 9123
+#define WAV_PATH "/tmp/pw-ghost-buffer.wav"
 
 struct data {
     struct pw_main_loop *loop;
@@ -162,6 +166,42 @@ void *osc_server_thread(void *arg) {
     return NULL;
 }
 
+// HTTP handler to serve the last wav file
+static enum MHD_Result wav_ahc(void *cls, struct MHD_Connection *connection, const char *url,
+                   const char *method, const char *version, const char *upload_data,
+                   size_t *upload_data_size, void **con_cls) {
+    (void)cls; (void)version; (void)upload_data; (void)upload_data_size; (void)con_cls;
+    if (strcmp(method, "GET") != 0) return MHD_NO;
+    if (strcmp(url, "/buffer.wav") != 0) return MHD_NO;
+    FILE *fp = fopen(WAV_PATH, "rb");
+    if (!fp) return MHD_NO;
+    struct stat st;
+    if (stat(WAV_PATH, &st) != 0) { fclose(fp); return MHD_NO; }
+    char *buf = malloc(st.st_size);
+    if (!buf) { fclose(fp); return MHD_NO; }
+    size_t n = fread(buf, 1, st.st_size, fp);
+    fclose(fp);
+    if (n != (size_t)st.st_size) { free(buf); return MHD_NO; }
+    struct MHD_Response *resp = MHD_create_response_from_buffer(st.st_size, buf, MHD_RESPMEM_MUST_FREE);
+    if (!resp) { free(buf); return MHD_NO; }
+    MHD_add_response_header(resp, "Content-Type", "audio/wav");
+    int ret = MHD_queue_response(connection, MHD_HTTP_OK, resp);
+    MHD_destroy_response(resp);
+    return ret == MHD_YES ? MHD_YES : MHD_NO;
+}
+
+// HTTP server thread
+void *http_server_thread(void *arg) {
+    (void)arg;
+    struct MHD_Daemon *daemon = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY, HTTP_PORT, NULL, NULL, wav_ahc, NULL, MHD_OPTION_END);
+    if (!daemon) return NULL;
+    while (!atomic_load(&osc_should_exit)) {
+        sleep(1);
+    }
+    MHD_stop_daemon(daemon);
+    return NULL;
+}
+
 int main(int argc, char *argv[]) {
     struct data data;
     memset(&data, 0, sizeof(data));
@@ -205,10 +245,13 @@ int main(int argc, char *argv[]) {
     }
     pthread_t osc_thread;
     pthread_create(&osc_thread, NULL, osc_server_thread, &data);
+    pthread_t http_thread;
+    pthread_create(&http_thread, NULL, http_server_thread, NULL);
     pw_main_loop_run(data.loop);
     // Signal OSC thread to exit
     atomic_store(&osc_should_exit, 1);
     pthread_join(osc_thread, NULL);
+    pthread_join(http_thread, NULL);
     pw_filter_destroy(data.filter);
     pw_main_loop_destroy(data.loop);
     pw_deinit();

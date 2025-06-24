@@ -38,6 +38,7 @@
           ninja
           check
           libsndfile.dev
+          libmicrohttpd.dev
         ];
       };
     });
