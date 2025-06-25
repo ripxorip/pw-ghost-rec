@@ -15,5 +15,7 @@ srcs = [
 # Define the executable and link dependencies
 executable('pw-ghost-rec', srcs,
   dependencies: [pipewire_dep, liblo_dep, libsndfile_dep, libmicrohttpd_dep],
-  c_args: ['-O2', '-Wno-pedantic']
+  c_args: ['-O2', '-Wno-pedantic'],
+  install: true,
+  install_dir: get_option('bindir'),
 )
