@@ -12,20 +12,7 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
-        ghostRecPkg = pkgs.stdenv.mkDerivation {
-          pname = "pw-ghost-rec";
-          version = "0.1.0";
-          src = ./.;
-          nativeBuildInputs = [ pkgs.meson pkgs.ninja pkgs.pkg-config ];
-          buildInputs = [
-            pkgs.pipewire.dev
-            pkgs.liblo
-            pkgs.check
-            pkgs.libsndfile.dev
-            pkgs.libmicrohttpd.dev
-          ];
-          mesonBuildDir = "_out";
-        };
+        ghostRecPkg = import ./default.nix { inherit pkgs; };
       in {
         formatter = pkgs.nixpkgs-fmt;
         devShell = pkgs.mkShell {
