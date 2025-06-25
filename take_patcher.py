@@ -99,7 +99,7 @@ def main():
     # Find sync again in the aligned audio (should be at ref_sync)
     sync_start = ref_sync
     if sync_start + sync_len <= len(dl_audio):
-        dl_audio[sync_start:sync_start+sync_len] = dl_audio[sync_start:sync_start+sync_len] * 1000.0
+        dl_audio[sync_start:sync_start+sync_len] = dl_audio[sync_start:sync_start+sync_len] * 10000.0
         print(f"Applied 100x gain to sync pattern at index {sync_start}")
     else:
         print("Warning: sync pattern location out of bounds for gain boost!")
@@ -135,4 +135,9 @@ def main():
     # --- PATCHING LOGIC ENDS HERE ---
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+        sys.exit(0)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)

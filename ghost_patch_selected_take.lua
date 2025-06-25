@@ -28,7 +28,12 @@ if path and path ~= "" then
   local cmd = python .. ' "' .. script .. '" ' .. quoted_path
 
   -- reaper.ShowConsoleMsg("[ghost] Running: " .. cmd .. "\n")
-  os.execute(cmd)
+  local ok, exit_type, code = os.execute(cmd)
+  if ok and code == 0 then
+    reaper.ShowConsoleMsg("✅ Done patching take: " .. path .. "\n")
+  else
+    reaper.ShowMessageBox("Patch failed! See console for details.", "Ghost Patch", 0)
+  end
 
   -- Confirm finished
   -- reaper.ShowConsoleMsg("[ghost] ✅ Done converting.\n")
