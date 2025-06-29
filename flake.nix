@@ -13,6 +13,7 @@
       let
         pkgs = import nixpkgs { inherit system; };
         ghostRecPkg = import ./default.nix { inherit pkgs; };
+        reaperPatcherPkg = import ./patchers/REAPER/default.nix { inherit pkgs; };
       in {
         formatter = pkgs.nixpkgs-fmt;
         devShell = pkgs.mkShell {
@@ -29,8 +30,13 @@
           ];
         };
         packages.default = ghostRecPkg;
+        packages.reaper-patcher = reaperPatcherPkg;
         apps.default = flake-utils.lib.mkApp {
           drv = ghostRecPkg;
+        };
+        apps.reaper-patcher = flake-utils.lib.mkApp {
+          drv = reaperPatcherPkg;
+          exePath = "/bin/reaper_patcher";
         };
       }
     );

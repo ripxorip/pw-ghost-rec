@@ -19,11 +19,18 @@
 #include "audio-buffer.h"
 #include <microhttpd.h>
 #include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <pwd.h>
 
 #define AUDIO_BUFFER_SECONDS (30 * 60)
 #define SYNC_PRE_DELAY_SECONDS 0.100
-#define HTTP_PORT 9123
-#define WAV_PATH "/tmp/pw-ghost-buffer.wav"
+#define RECORDINGS_DIR ".pw-ghost-rec/recordings"
+
+// Function prototypes for helpers used before definition
+static void make_reaper_filename(char *buf, size_t buflen);
+static void ensure_recordings_dir(void);
 
 struct data {
     struct pw_main_loop *loop;
@@ -119,14 +126,18 @@ void *write_buffer_thread(void *arg) {
     struct data *data = (struct data *)arg;
     pthread_mutex_lock(&data->buffer_mutex);
     data->buffer_write_in_progress = 1;
-    // Write the buffer to wav (mono, all samples)
-
+    // Ensure recordings dir exists (recursively)
+    ensure_recordings_dir();
+    // Make filename
+    char filename[1024];
+    make_reaper_filename(filename, sizeof(filename));
     float time_since_sync = audio_buffer_seconds_since_sync(data->audio_buffer);
     float pre_time = 0.1f;
     float offset = time_since_sync + pre_time;
     float duration = time_since_sync - pre_time;
     if (duration < 0.01f) duration = 0.01f; // Clamp to minimum duration
-    audio_buffer_write_channel_to_wav(data->audio_buffer, 0, offset, duration, "/tmp/pw-ghost-buffer.wav");
+    audio_buffer_write_channel_to_wav(data->audio_buffer, 0, offset, duration, filename);
+    printf("Saved recording: %s\n", filename);
     data->buffer_write_in_progress = 0;
     pthread_mutex_unlock(&data->buffer_mutex);
     return NULL;
@@ -166,40 +177,39 @@ void *osc_server_thread(void *arg) {
     return NULL;
 }
 
-// HTTP handler to serve the last wav file
-static enum MHD_Result wav_ahc(void *cls, struct MHD_Connection *connection, const char *url,
-                   const char *method, const char *version, const char *upload_data,
-                   size_t *upload_data_size, void **con_cls) {
-    (void)cls; (void)version; (void)upload_data; (void)upload_data_size; (void)con_cls;
-    if (strcmp(method, "GET") != 0) return MHD_NO;
-    if (strcmp(url, "/buffer.wav") != 0) return MHD_NO;
-    FILE *fp = fopen(WAV_PATH, "rb");
-    if (!fp) return MHD_NO;
-    struct stat st;
-    if (stat(WAV_PATH, &st) != 0) { fclose(fp); return MHD_NO; }
-    char *buf = malloc(st.st_size);
-    if (!buf) { fclose(fp); return MHD_NO; }
-    size_t n = fread(buf, 1, st.st_size, fp);
-    fclose(fp);
-    if (n != (size_t)st.st_size) { free(buf); return MHD_NO; }
-    struct MHD_Response *resp = MHD_create_response_from_buffer(st.st_size, buf, MHD_RESPMEM_MUST_FREE);
-    if (!resp) { free(buf); return MHD_NO; }
-    MHD_add_response_header(resp, "Content-Type", "audio/wav");
-    int ret = MHD_queue_response(connection, MHD_HTTP_OK, resp);
-    MHD_destroy_response(resp);
-    return ret == MHD_YES ? MHD_YES : MHD_NO;
+// Helper to get recordings dir path (in home)
+static void get_recordings_dir(char *buf, size_t buflen) {
+    const char *home = getenv("HOME");
+    if (!home) {
+        struct passwd *pw = getpwuid(getuid());
+        home = pw ? pw->pw_dir : ".";
+    }
+    snprintf(buf, buflen, "%s/%s", home, RECORDINGS_DIR);
 }
 
-// HTTP server thread
-void *http_server_thread(void *arg) {
-    (void)arg;
-    struct MHD_Daemon *daemon = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY, HTTP_PORT, NULL, NULL, wav_ahc, NULL, MHD_OPTION_END);
-    if (!daemon) return NULL;
-    while (!atomic_load(&osc_should_exit)) {
-        sleep(1);
+// Helper to generate REAPER-style filename
+static void make_reaper_filename(char *buf, size_t buflen) {
+    char dir[512];
+    get_recordings_dir(dir, sizeof(dir));
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    snprintf(buf, buflen, "%s/rec%04d%02d%02d-%02d%02d%02d.wav", dir,
+        tm.tm_year+1900, tm.tm_mon+1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+}
+
+// Helper to ensure ~/.pw-ghost-rec/recordings exists (recursively)
+static void ensure_recordings_dir(void) {
+    char dir[512];
+    get_recordings_dir(dir, sizeof(dir));
+    char parent[512];
+    snprintf(parent, sizeof(parent), "%s", dir);
+    char *slash = strrchr(parent, '/');
+    if (slash) {
+        *slash = '\0';
+        mkdir(parent, 0700); // ~/.pw-ghost-rec
     }
-    MHD_stop_daemon(daemon);
-    return NULL;
+    mkdir(dir, 0700); // ~/.pw-ghost-rec/recordings
 }
 
 int main(int argc, char *argv[]) {
@@ -245,13 +255,10 @@ int main(int argc, char *argv[]) {
     }
     pthread_t osc_thread;
     pthread_create(&osc_thread, NULL, osc_server_thread, &data);
-    pthread_t http_thread;
-    pthread_create(&http_thread, NULL, http_server_thread, NULL);
     pw_main_loop_run(data.loop);
     // Signal OSC thread to exit
     atomic_store(&osc_should_exit, 1);
     pthread_join(osc_thread, NULL);
-    pthread_join(http_thread, NULL);
     pw_filter_destroy(data.filter);
     pw_main_loop_destroy(data.loop);
     pw_deinit();
