@@ -65,6 +65,11 @@ class ReaperPatcher:
         os.system(rsync_cmd)
 
     def print_patch_summary(self, patch_results):
+        # ANSI color codes
+        GREEN = '\033[92m'
+        YELLOW = '\033[93m'
+        RED = '\033[91m'
+        RESET = '\033[0m'
         print("\n" + "="*40)
         print("PATCH SUMMARY")
         print("="*40)
@@ -72,17 +77,19 @@ class ReaperPatcher:
         if patch_results['patched']:
             for wav, rec, diff_mean, diff_max in patch_results['patched']:
                 warn = ""
+                color = GREEN
                 if diff_mean is not None and (diff_mean > 0.01 or diff_max > 0.1):
-                    warn = f" [WARNING: mean={diff_mean:.6f}, max={diff_max:.6f}]"
+                    warn = f" {YELLOW}[WARNING: mean={diff_mean:.6f}, max={diff_max:.6f}]{RESET}"
+                    color = YELLOW
                 elif diff_mean is not None:
                     warn = f" (mean={diff_mean:.6f}, max={diff_max:.6f})"
-                print(f"  ✓ {wav.name}  <--  {rec.name}{warn}")
+                print(f"  {color}✓ {wav.name}  <--  {rec.name}{warn}{RESET}")
         else:
             print("  (none)")
         print("\nCould NOT patch:")
         if patch_results['not_patched']:
             for wav, reason in patch_results['not_patched']:
-                print(f"  ✗ {wav.name}  --  {reason}")
+                print(f"  {RED}✗ {wav.name}  --  {reason}{RESET}")
         else:
             print("  (none)")
         print("\n" + "="*40 + "\n")
@@ -116,6 +123,7 @@ class ReaperPatcher:
         self.print_patch_summary(patch_results)
 
     def patch_wav_with_reference(self, ref_path, rec_path):
+        # --- Load audio ---
         ref_audio, ref_sr = sf.read(str(ref_path), dtype='float32')
         rec_audio, rec_sr = sf.read(str(rec_path), dtype='float32')
         if ref_sr != rec_sr:
@@ -124,10 +132,14 @@ class ReaperPatcher:
             ref_audio = ref_audio[:, 0]
         if rec_audio.ndim > 1:
             rec_audio = rec_audio[:, 0]
+
+        # --- Find sync points ---
         ref_sync = find_sync_offset(ref_audio)
         rec_sync = find_sync_offset(rec_audio)
         if ref_sync == -1 or rec_sync == -1:
             raise RuntimeError("Sync pattern not found in one or both files!")
+
+        # --- Align local recording to reference ---
         offset_diff = ref_sync - rec_sync
         if offset_diff > 0:
             rec_audio = np.pad(rec_audio, (offset_diff, 0))
@@ -136,6 +148,8 @@ class ReaperPatcher:
         if len(rec_audio) < len(ref_audio):
             rec_audio = np.pad(rec_audio, (0, len(ref_audio) - len(rec_audio)))
         rec_audio = rec_audio[:len(ref_audio)]
+
+        # --- Compute similarity metrics ---
         sync_len = len(SYNC_PATTERN)
         sync_start = ref_sync
         compare_start = sync_start + sync_len
@@ -144,8 +158,12 @@ class ReaperPatcher:
             diff = np.abs(ref_audio[compare_start:] - rec_audio[compare_start:])
             diff_mean = float(np.mean(diff))
             diff_max = float(np.max(diff))
+
+        # --- Burn in sync marker (optional) ---
         if sync_start + sync_len <= len(rec_audio):
             rec_audio[sync_start:sync_start+sync_len] = rec_audio[sync_start:sync_start+sync_len] * 10000.0
+
+        # --- Patch the file ---
         data_offset, data_size = find_wav_data_offset(ref_path)
         patch_start = sync_start
         patch_len = len(rec_audio) - patch_start
